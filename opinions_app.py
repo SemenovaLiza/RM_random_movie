@@ -1,7 +1,8 @@
 from datetime import datetime
 from random import randrange
 
-from flask import Flask, render_template, redirect, url_for
+from flask import abort, Flask, render_template, redirect, url_for, flash
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 
 from flask_wtf import FlaskForm
@@ -16,6 +17,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SECRET_KEY'] = 'MY SECRET KEY'
 
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 
 class Opinion(db.Model):
@@ -46,7 +48,7 @@ class OpinionForm(FlaskForm):
 def index_view():
     quantity = Opinion.query.count()
     if not quantity:
-        return 'There is no movies we can recommend to you yet'
+        abort(404)
     offset_value = randrange(quantity)
     opinion = Opinion.query.offset(offset_value).first()
     return render_template('opinion.html', opinion=opinion)
@@ -62,6 +64,10 @@ def opinion_view(id):
 def add_opinion_view():
     form = OpinionForm()
     if form.validate_on_submit():
+        text = form.text.data
+        if Opinion.query.filter_by(text=text).first() is not None:
+            flash('This opinion already exists', 'existing-form')
+            return render_template('add_opinion.html', form=form)
         opinion = Opinion(
             title=form.title.data,
             text=form.text.data,
@@ -71,6 +77,17 @@ def add_opinion_view():
         db.session.commit()
         return redirect(url_for('opinion_view', id=opinion.id))
     return render_template('add_opinion.html', form=form)
+
+
+@app.errorhandler(404)
+def page_not_found(error):
+    return render_template('error_pages/404.html'), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    db.session.rollabck()
+    return render_template('error_pages/500.html'), 500
 
 
 if __name__ == '__main__':
